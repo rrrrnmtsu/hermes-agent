@@ -680,16 +680,15 @@ class DiscordAdapter(BasePlatformAdapter):
                     if not self._is_allowed_user(str(message.author.id), message.author):
                         return
                 
-                # Multi-agent filtering: if the message mentions specific bots
-                # but NOT this bot, the sender is talking to another agent —
-                # stay silent.  Messages with no bot mentions (general chat)
-                # still fall through to _handle_message for the existing
-                # DISCORD_REQUIRE_MENTION check.
+                # Multi-agent filtering + require-mention gate.
+                # In server channels (NOT DMs), the bot should only respond when:
+                #   1. It is directly @mentioned, OR
+                #   2. The channel is a free-response channel (handled in _handle_message)
                 #
                 # This replaces the older DISCORD_IGNORE_NO_MENTION logic
                 # with bot-aware filtering that works correctly when multiple
                 # agents share a channel.
-                if not isinstance(message.channel, discord.DMChannel) and message.mentions:
+                if not isinstance(message.channel, discord.DMChannel):
                     _self_mentioned = (
                         self._client.user is not None
                         and self._client.user in message.mentions
@@ -701,12 +700,13 @@ class DiscordAdapter(BasePlatformAdapter):
                     # If other bots are mentioned but we're not → not for us
                     if _other_bots_mentioned and not _self_mentioned:
                         return
-                    # If humans are mentioned but we're not → not for us
-                    # (preserves old DISCORD_IGNORE_NO_MENTION=true behavior)
+                    # Require @mention by default (DISCORD_IGNORE_NO_MENTION=true)
+                    # Messages with zero mentions are also rejected — the bot must
+                    # be explicitly @mentioned in server channels.
                     _ignore_no_mention = os.getenv(
                         "DISCORD_IGNORE_NO_MENTION", "true"
                     ).lower() in ("true", "1", "yes")
-                    if _ignore_no_mention and not _self_mentioned and not _other_bots_mentioned:
+                    if _ignore_no_mention and not _self_mentioned:
                         return
 
                 await self._handle_message(message)
